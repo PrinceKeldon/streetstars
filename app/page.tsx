@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Star = { id: string; street: string; lat: number; lon: number; status: "available" | "claimed" | "resting"; claimant?: string; availableAt?: number };
+type Star = { id: string; street: string; lat: number; lon: number; status: "available" | "claimed" | "resting"; claimant?: string; memory?: string; availableAt?: number };
 
 const BERLIN = { lat: 52.5200, lon: 13.4050 };
 const SEED: Star[] = [
@@ -27,6 +27,7 @@ export default function Home() {
   const [position, setPosition] = useState<typeof BERLIN | null>(null);
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
+  const [memory, setMemory] = useState("");
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -44,8 +45,8 @@ export default function Home() {
 
   const claim = () => {
     if (!selected || !found || !name.trim()) return;
-    setStars(prev => prev.map(s => s.id === selected.id ? {...s, status:"claimed", claimant:name.trim()} : s));
-    setSelected({...selected, status:"claimed", claimant:name.trim()});
+    setStars(prev => prev.map(s => s.id === selected.id ? {...s, status:"claimed", claimant:name.trim(), memory:memory.trim()} : s));
+    setSelected({...selected, status:"claimed", claimant:name.trim(), memory:memory.trim()});
     setMessage("YOU FOUND IT. This Star is yours to leave something at.");
   };
 
@@ -73,10 +74,10 @@ export default function Home() {
       <aside className="panel">
         {!selected ? <><span className="eyebrow">THE PRIMITIVE</span><h2>Find one.</h2><p>Stars are permanent place markers. Claims are temporary. Memories can be released. Once a Star opens again, the first person physically there can claim it.</p><div className="rule"/><p className="small">No ownership. No transfer. No sale. The Star belongs to the street.</p></> : <>
           <span className="eyebrow">{selected.status.toUpperCase()}</span><h2>{selected.id}</h2><p>{selected.street} · Berlin</p>
-          {selected.status === "resting" ? <><div className="status-box">This Star is resting.<br/>It will return without warning.</div><button className="secondary" onClick={()=>setSelected(null)}>BACK TO MAP</button></> : selected.status === "claimed" ? <><div className="status-box">Claimed by {selected.claimant}.</div><button className="secondary" onClick={release}>RELEASE STAR</button></> : <>
+          {selected.status === "resting" ? <><div className="status-box">This Star is resting.<br/>It will return without warning.</div><button className="secondary" onClick={()=>setSelected(null)}>BACK TO MAP</button></> : selected.status === "claimed" ? <><div className="status-box">Claimed by {selected.claimant}.<br/><br/>{selected.memory && <em>“{selected.memory}”</em>}</div><button className="secondary" onClick={release}>RELEASE STAR</button></> : <>
             <button className="primary" onClick={locate}>GO FIND IT →</button>
             {position && <p className="distance">{distance !== null ? distance + " m away" : "Location available"}</p>}
-            {found && <div className="claim-box"><strong>YOU FOUND IT.</strong><input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name"/><button className="primary" onClick={claim}>CLAIM THIS STAR</button></div>}
+            {found && <div className="claim-box"><strong>YOU FOUND IT.</strong><input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name"/><textarea value={memory} onChange={e=>setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={4}/><button className="primary" onClick={claim}>CLAIM & LEAVE</button></div>}
           </>}
           {message && <p className="message">{message}</p>}
         </>}
