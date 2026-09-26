@@ -79,6 +79,8 @@ export default function Home() {
   useEffect(() => {
     if (!mapNode.current || mapRef.current) return;
 
+    maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
     const map = new maplibregl.Map({
       container: mapNode.current,
       style: "https://tiles.openfreemap.org/styles/liberty",
