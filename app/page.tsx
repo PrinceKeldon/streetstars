@@ -224,11 +224,6 @@ export default function Home() {
     <main className="street-stars">
       <div ref={mapNode} className="map-canvas" aria-label="Interactive Berlin Street Stars map" />
 
-      <header className="topbar glass">
-        <div className="brand-mark"><span className="brand-star">★</span><span>STREET STARS</span></div>
-        <div className="topbar-right"><span>BERLIN</span><span className="edition-pill">EDITION I · 2026–2030</span></div>
-      </header>
-
       {selected && (
         <aside className="star-card glass">
           <button className="close" onClick={() => setSelected(null)} aria-label="Close">×</button>
@@ -257,10 +252,6 @@ export default function Home() {
         </aside>
       )}
 
-      <div className="map-legend glass">
-        <span><i className="legend-star available">★</i> AVAILABLE</span>
-        <span><i className="legend-star claimed">★</i> CLAIMED</span>
-      </div>
       {claimMoment && selected && (
         <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">
           <div className="claim-moment-backdrop" />
@@ -280,7 +271,6 @@ export default function Home() {
         </div>
       )}
 
-      <footer className="map-footer"><span>PLACE → STAR → MEMORY</span><span>STREET STARS · BERLIN</span></footer>
     </main>
   );
 }
