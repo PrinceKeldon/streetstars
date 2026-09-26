@@ -133,3 +133,20 @@ button{cursor:pointer}
 .history-meta strong{font:8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;color:#4f4b44}
 .history-meta span{font:8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;color:#969087}
 .history-entry p{margin:6px 0 0;font:14px/1.4 Georgia,serif;color:#57534c;overflow-wrap:anywhere}
+
+
+/* 24-hour claim verification */
+.claim-status{margin-top:16px;padding:13px 0;border-top:1px solid rgba(60,57,50,.13);border-bottom:1px solid rgba(60,57,50,.13);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.claim-status-label{font:9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.12em}
+.claim-status.pending .claim-status-label{color:#a94f31}
+.claim-status.verified .claim-status-label{color:#5c5952}
+.verification-countdown{font:8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;color:#8b867c}
+.verification-panel{margin-top:14px;padding:17px;border:1px solid rgba(169,79,49,.2);background:rgba(169,79,49,.055);border-radius:12px}
+.verification-panel strong{display:block;font:20px/1.15 Georgia,serif;font-weight:400;color:#393631}
+.verification-panel p{margin:7px 0 8px;font:14px/1.4 Georgia,serif;color:#5e5951}
+.verification-panel small{display:block;margin-bottom:13px;font:8px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;color:#858078}
+.verify-button{margin-top:2px}
+@media(max-width:700px){
+  .claim-status{align-items:flex-start;flex-direction:column;gap:5px}
+  .verification-panel{padding:15px}
+}
