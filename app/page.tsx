@@ -38,7 +38,9 @@ function distanceMetres(a: { lat: number; lon: number }, b: { lat: number; lon: 
 function StarMarker({ star, onClick }: { star: Star; onClick: () => void }) {
   return (
     <button className={`map-star-marker ${star.status}`} onClick={onClick} aria-label={star.id}>
-      <span>★</span>
+      <span className="star-halo" aria-hidden="true" />
+      <span className="star-glyph" aria-hidden="true">★</span>
+      <span className="star-pulse" aria-hidden="true" />
     </button>
   );
 }
@@ -56,6 +58,7 @@ export default function Home() {
   const [memory, setMemory] = useState("");
   const [message, setMessage] = useState("");
   const [mapReady, setMapReady] = useState(false);
+  const [claimMoment, setClaimMoment] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -144,8 +147,12 @@ export default function Home() {
       const element = document.createElement("div");
       const button = document.createElement("button");
       button.className = `map-star-marker ${star.status}`;
-      button.setAttribute("aria-label", star.id);
-      button.innerHTML = "<span>★</span>";
+      button.setAttribute("aria-label", `${star.id} · ${star.street}`);
+      button.innerHTML = `
+        <span class="star-halo" aria-hidden="true"></span>
+        <span class="star-glyph" aria-hidden="true">★</span>
+        <span class="star-pulse" aria-hidden="true"></span>
+      `;
       button.onclick = () => {
         setSelected(star);
         setMessage("");
@@ -191,6 +198,8 @@ export default function Home() {
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
     setMessage("YOU FOUND IT.");
+    setClaimMoment(true);
+    window.setTimeout(() => setClaimMoment(false), 4200);
   };
 
   const release = () => {
@@ -259,6 +268,25 @@ export default function Home() {
         <span><i className="legend-star available">★</i> AVAILABLE</span>
         <span><i className="legend-star claimed">★</i> CLAIMED</span>
       </div>
+      {claimMoment && selected && (
+        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">
+          <div className="claim-moment-backdrop" />
+          <div className="claim-moment-content">
+            <div className="claim-moment-star" aria-hidden="true">
+              <span className="star-glyph">★</span>
+              <span className="star-rays" />
+            </div>
+            <span className="eyebrow">STREET STARS · BERLIN</span>
+            <div className="claim-kicker">THE STAR IS YOURS</div>
+            <h2>{selected.street}</h2>
+            <p>STAR {selected.id} · LEFT BY {selected.claimant?.toUpperCase()}</p>
+            {selected.memory && <blockquote>“{selected.memory}”</blockquote>}
+            <div className="claim-rule" />
+            <span className="claim-foot">A MEMORY HAS BEEN LEFT ON THIS STREET.</span>
+          </div>
+        </div>
+      )}
+
       <footer className="map-footer"><span>PLACE → STAR → MEMORY</span><span>STREET STARS · BERLIN</span></footer>
     </main>
   );
