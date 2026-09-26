@@ -69,6 +69,8 @@ button{cursor:pointer}
 .distance-readout strong{font:28px Georgia,serif;font-weight:400;color:#282621}
 .distance-readout.found strong,.distance-readout.found span{color:#a94f31}
 .claim-form{display:grid;gap:9px}
+.claim-prompt{margin:2px 0 0;font:22px/1.15 Georgia,serif;color:#393631}
+.claim-form small{font:8px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;color:#858078}
 .claim-form input,.claim-form textarea{width:100%;border:1px solid rgba(60,57,50,.16);background:rgba(255,255,255,.45);border-radius:10px;padding:12px 13px;outline:none;color:#24221f}
 .claim-form textarea{resize:none}
 .claim-form input:focus,.claim-form textarea:focus{border-color:#a94f31}
