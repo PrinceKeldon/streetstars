@@ -341,18 +341,8 @@ export default function Home() {
 
   const saveMemory = () => {
     if (!selected || !name.trim()) return;
-    const nextMemory: StarMemory = {
-      id: `${selected.id}-${Date.now()}`,
-      claimant: name.trim(),
-      type: memoryType,
-      text: memory.trim() || undefined,
-      link: memoryLink.trim() || undefined,
-      name: memoryFile || undefined,
-      createdAt: Date.now(),
-    };
     const next = {
       ...selected,
-      history: [...(selected.history || []), nextMemory],
       memory: memory.trim() || memoryFile || memoryLink.trim(),
       memoryType,
       memoryLink: memoryLink.trim() || undefined,
