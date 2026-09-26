@@ -55,6 +55,7 @@ export default function Home() {
   const [name, setName] = useState("");
   const [memory, setMemory] = useState("");
   const [message, setMessage] = useState("");
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -122,6 +123,7 @@ export default function Home() {
       }, labelLayer);
 
       mapRef.current = map;
+      setMapReady(true);
       map.resize();
     });
 
@@ -163,7 +165,7 @@ export default function Home() {
         .setLngLat([position.lon, position.lat])
         .addTo(map);
     }
-  }, [visibleStars, position]);
+  }, [visibleStars, position, mapReady]);
 
   const locate = () => {
     navigator.geolocation?.getCurrentPosition(
