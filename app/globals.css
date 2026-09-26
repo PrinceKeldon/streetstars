@@ -152,3 +152,18 @@ button{cursor:pointer}
   .claim-status{align-items:flex-start;flex-direction:column;gap:5px}
   .verification-panel{padding:15px}
 }
+
+/* Magic-link verification handoff */
+.verification-panel{position:relative;overflow:hidden}
+.verification-panel:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.16) 48%,transparent 52%);transform:translateX(-120%);animation:verification-sweep 1.1s .15s ease-out both}
+.verification-mark{width:38px;height:38px;margin-bottom:12px;border:1px solid rgba(169,79,49,.25);border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.3);color:#a94f31}
+.verification-mark span{font-size:16px;transform:translateY(-1px)}
+.verification-eyebrow{margin-bottom:6px;font:8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;color:#a94f31}
+.verification-detail{display:flex;align-items:center;gap:7px;margin:11px 0 10px;font:8px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.1em;color:#716c63}
+.verification-detail b{font-weight:400;color:#a94f31}
+.verification-dot{width:6px;height:6px;border-radius:50%;background:#a94f31;box-shadow:0 0 0 4px rgba(169,79,49,.1);animation:verification-dot 1.8s ease-in-out infinite}
+.verification-panel small{margin-bottom:13px}
+.verification-panel.sent{animation:verification-arrive .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes verification-sweep{to{transform:translateX(120%)}}
+@keyframes verification-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes verification-dot{0%,100%{opacity:.45;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
