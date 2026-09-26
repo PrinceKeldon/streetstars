@@ -51,6 +51,7 @@ export default function Home() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   const [stars, setStars] = useState(SEED);
   const [selected, setSelected] = useState<Star | null>(null);
@@ -137,6 +138,8 @@ export default function Home() {
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
       userMarkerRef.current?.remove();
+      if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -187,6 +190,14 @@ export default function Home() {
         setPosition(next);
         setLocating(false);
         mapRef.current?.flyTo({ center: [next.lon, next.lat], zoom: 15, pitch: 52, duration: 1200 });
+
+        if (watchIdRef.current === null) {
+          watchIdRef.current = navigator.geolocation.watchPosition(
+            (watch) => setPosition({ lat: watch.coords.latitude, lon: watch.coords.longitude }),
+            () => setMessage("LIVE LOCATION UPDATE LOST."),
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+          );
+        }
       },
       () => {
         setLocating(false);
