@@ -229,16 +229,6 @@ export default function Home() {
         <div className="topbar-right"><span>BERLIN</span><span className="edition-pill">EDITION I · 2026–2030</span></div>
       </header>
 
-      {!selected && (
-        <section className="welcome glass">
-          <span className="eyebrow">BERLIN · STREET STARS</span>
-          <h1>Give the streets<br /><em>a memory.</em></h1>
-          <p>Walk the city. Find a Star. Leave something behind.</p>
-          <div className="how"><span><b>01</b> FIND</span><span><b>02</b> WALK</span><span><b>03</b> LEAVE</span></div>
-          <button className="locate-button" onClick={locate}>LOCATE ME <span>→</span></button>
-        </section>
-      )}
-
       {selected && (
         <aside className="star-card glass">
           <button className="close" onClick={() => setSelected(null)} aria-label="Close">×</button>
