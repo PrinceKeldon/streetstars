@@ -17,6 +17,8 @@ type StarMemory = {
   createdAt: number;
 };
 
+type ClaimStatus = "pending_verification" | "verified";
+
 type Star = {
   id: string;
   street: string;
@@ -30,6 +32,8 @@ type Star = {
   memoryName?: string;
   history?: StarMemory[];
   availableAt?: number;
+  claimStatus?: ClaimStatus;
+  verificationExpiresAt?: number;
 };
 
 const BERLIN = { lat: 52.52, lon: 13.405 };
@@ -96,6 +100,7 @@ export default function Home() {
         if (!star.memory && !star.claimant) return { ...star, history: [] };
         return {
           ...star,
+          claimStatus: star.status === "claimed" ? "verified" : star.claimStatus,
           history: [{
             id: `legacy-${star.id}`,
             claimant: star.claimant || "UNKNOWN",
@@ -121,6 +126,42 @@ export default function Home() {
       ? { ...s, status: "available" as const, availableAt: undefined }
       : s
   ), [stars]);
+
+  useEffect(() => {
+    const expirePendingClaims = () => {
+      const now = Date.now();
+      setStars((prev) => {
+        let changed = false;
+        const next = prev.map((star) => {
+          if (
+            star.status === "claimed" &&
+            star.claimStatus === "pending_verification" &&
+            star.verificationExpiresAt &&
+            now >= star.verificationExpiresAt
+          ) {
+            changed = true;
+            return {
+              ...star,
+              status: "available" as const,
+              claimant: undefined,
+              memory: undefined,
+              memoryType: undefined,
+              memoryLink: undefined,
+              memoryName: undefined,
+              claimStatus: undefined,
+              verificationExpiresAt: undefined,
+            };
+          }
+          return star;
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    expirePendingClaims();
+    const interval = window.setInterval(expirePendingClaims, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!mapNode.current || mapRef.current) return;
@@ -264,7 +305,17 @@ export default function Home() {
 
   const claim = () => {
     if (!selected || !found || !name.trim()) return;
-    const next = { ...selected, status: "claimed" as const, claimant: name.trim() };
+    const next = {
+      ...selected,
+      status: "claimed" as const,
+      claimant: name.trim(),
+      claimStatus: "pending_verification" as const,
+      verificationExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      memory: undefined,
+      memoryType: undefined,
+      memoryLink: undefined,
+      memoryName: undefined,
+    };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
     setMessage("");
@@ -297,12 +348,24 @@ export default function Home() {
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
     setLeaveMode(false);
-    setMessage("MEMORY LEFT. THIS STAR WILL CARRY IT FORWARD.");
+    setMessage("MEMORY LEFT. VERIFY YOUR CLAIM WITHIN 24 HOURS.");
   };
 
   const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) setMemoryFile(file.name);
+  };
+
+  const verifyClaim = () => {
+    if (!selected || selected.claimStatus !== "pending_verification") return;
+    const next = {
+      ...selected,
+      claimStatus: "verified" as const,
+      verificationExpiresAt: undefined,
+    };
+    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+    setSelected(next);
+    setMessage("CLAIM VERIFIED. THIS MEMORY IS NOW PART OF THE STAR'S HISTORY.");
   };
 
   const release = () => {
@@ -317,6 +380,8 @@ export default function Home() {
       memoryLink: undefined,
       memoryName: undefined,
       availableAt: Date.now() + delay,
+      claimStatus: undefined,
+      verificationExpiresAt: undefined,
     };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
@@ -393,9 +458,39 @@ export default function Home() {
                 </>
               ) : selected.status === "claimed" ? (
                 <>
-                  <div className="memory-copy"><span>LEFT BY {selected.claimant?.toUpperCase()}</span>{selected.memory && <p>{selected.memoryType === "message" ? "“" + selected.memory + "”" : selected.memory}</p>}{selected.memoryName && <p>◫ {selected.memoryName}</p>}{selected.memoryLink && <p>↗ {selected.memoryLink}</p>}</div>
+                  <div className={"claim-status " + (selected.claimStatus === "pending_verification" ? "pending" : "verified")}>
+                    <span className="claim-status-label">
+                      {selected.claimStatus === "pending_verification" ? "CLAIMED · VERIFYING" : "CLAIM VERIFIED"}
+                    </span>
+                    {selected.claimStatus === "pending_verification" && selected.verificationExpiresAt && (
+                      <span className="verification-countdown">
+                        {(() => {
+                          const remaining = Math.max(0, selected.verificationExpiresAt - Date.now());
+                          const hours = Math.floor(remaining / 3600000);
+                          const minutes = Math.floor((remaining % 3600000) / 60000);
+                          return hours + "H " + minutes.toString().padStart(2, "0") + "M REMAINING";
+                        })()}
+                      </span>
+                    )}
+                  </div>
+
+                  {selected.claimStatus === "pending_verification" && (
+                    <div className="verification-panel">
+                      <strong>Keep your Star memory</strong>
+                      <p>We’ve sent a link to verify your claim.</p>
+                      <small>This prototype simulates the magic-link step. Verification must happen within 24 hours.</small>
+                      <button className="locate-button wide verify-button" onClick={verifyClaim}>VERIFY CLAIM <span>→</span></button>
+                    </div>
+                  )}
+
+                  <div className="memory-copy">
+                    <span>LEFT BY {selected.claimant?.toUpperCase()}</span>
+                    {selected.memory && <p>{selected.memoryType === "message" ? "“" + selected.memory + "”" : selected.memory}</p>}
+                    {selected.memoryName && <p>◫ {selected.memoryName}</p>}
+                    {selected.memoryLink && <p>↗ {selected.memoryLink}</p>}
+                  </div>
                   <button className="text-button" onClick={() => setLeaveMode(true)}>LEAVE SOMETHING ELSE →</button>
-                  <button className="text-button" onClick={release}>RELEASE STAR →</button>
+                  {selected.claimStatus === "verified" && <button className="text-button" onClick={release}>RELEASE STAR →</button>}
                 </>
               ) : (
                 <>
