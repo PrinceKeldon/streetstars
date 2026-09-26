@@ -97,7 +97,12 @@ export default function Home() {
     try {
       const stored = JSON.parse(raw) as Star[];
       setStars(stored.map((star) => {
-        if (star.history) return star;
+        if (star.history) {
+          return {
+            ...star,
+            claimStatus: star.status === "claimed" ? (star.claimStatus || "verified") : star.claimStatus,
+          };
+        }
         if (!star.memory && !star.claimant) return { ...star, history: [] };
         return {
           ...star,
