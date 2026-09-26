@@ -89,6 +89,7 @@ export default function Home() {
   const [locating, setLocating] = useState(false);
   const [encounterMode, setEncounterMode] = useState(false);
   const [claimStarted, setClaimStarted] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -129,7 +130,8 @@ export default function Home() {
 
   useEffect(() => {
     const expirePendingClaims = () => {
-      const now = Date.now();
+      const currentTime = Date.now();
+      setNow(currentTime);
       setStars((prev) => {
         let changed = false;
         const next = prev.map((star) => {
@@ -137,7 +139,7 @@ export default function Home() {
             star.status === "claimed" &&
             star.claimStatus === "pending_verification" &&
             star.verificationExpiresAt &&
-            now >= star.verificationExpiresAt
+            currentTime >= star.verificationExpiresAt
           ) {
             changed = true;
             return {
@@ -358,14 +360,34 @@ export default function Home() {
 
   const verifyClaim = () => {
     if (!selected || selected.claimStatus !== "pending_verification") return;
+
+    const memoryToPublish = selected.memory || selected.memoryName || selected.memoryLink;
+    const publishedMemory: StarMemory | null = memoryToPublish ? {
+      id: selected.id + "-" + Date.now(),
+      claimant: selected.claimant || "UNKNOWN",
+      type: selected.memoryType || "message",
+      text: selected.memory || undefined,
+      link: selected.memoryLink || undefined,
+      name: selected.memoryName || undefined,
+      createdAt: Date.now(),
+    } : null;
+
     const next = {
       ...selected,
       claimStatus: "verified" as const,
       verificationExpiresAt: undefined,
+      history: publishedMemory
+        ? [...(selected.history || []), publishedMemory]
+        : (selected.history || []),
     };
+
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
-    setMessage("CLAIM VERIFIED. THIS MEMORY IS NOW PART OF THE STAR'S HISTORY.");
+    setMessage(
+      publishedMemory
+        ? "CLAIM VERIFIED. THIS MEMORY IS NOW PART OF THE STAR'S HISTORY."
+        : "CLAIM VERIFIED. THE STAR NOW REMEMBERS YOU."
+    );
   };
 
   const release = () => {
@@ -465,7 +487,7 @@ export default function Home() {
                     {selected.claimStatus === "pending_verification" && selected.verificationExpiresAt && (
                       <span className="verification-countdown">
                         {(() => {
-                          const remaining = Math.max(0, selected.verificationExpiresAt - Date.now());
+                          const remaining = Math.max(0, selected.verificationExpiresAt - now);
                           const hours = Math.floor(remaining / 3600000);
                           const minutes = Math.floor((remaining % 3600000) / 60000);
                           return hours + "H " + minutes.toString().padStart(2, "0") + "M REMAINING";
