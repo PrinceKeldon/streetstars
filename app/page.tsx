@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+
+type MemoryType = "message" | "photo" | "song" | "link";
 
 type Star = {
   id: string;
@@ -12,6 +15,9 @@ type Star = {
   status: "available" | "claimed" | "resting";
   claimant?: string;
   memory?: string;
+  memoryType?: MemoryType;
+  memoryLink?: string;
+  memoryName?: string;
   availableAt?: number;
 };
 
@@ -58,9 +64,13 @@ export default function Home() {
   const [position, setPosition] = useState<typeof BERLIN | null>(null);
   const [name, setName] = useState("");
   const [memory, setMemory] = useState("");
+  const [memoryType, setMemoryType] = useState<MemoryType>("message");
+  const [memoryLink, setMemoryLink] = useState("");
+  const [memoryFile, setMemoryFile] = useState("");
   const [message, setMessage] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [claimMoment, setClaimMoment] = useState(false);
+  const [leaveMode, setLeaveMode] = useState(false);
   const [locating, setLocating] = useState(false);
 
   useEffect(() => {
@@ -212,12 +222,35 @@ export default function Home() {
 
   const claim = () => {
     if (!selected || !found || !name.trim()) return;
-    const next = { ...selected, status: "claimed" as const, claimant: name.trim(), memory: memory.trim() };
+    const next = { ...selected, status: "claimed" as const, claimant: name.trim() };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
-    setMessage("YOU FOUND IT.");
+    setMessage("");
     setClaimMoment(true);
-    window.setTimeout(() => setClaimMoment(false), 4200);
+    window.setTimeout(() => {
+      setClaimMoment(false);
+      setLeaveMode(true);
+    }, 2850);
+  };
+
+  const saveMemory = () => {
+    if (!selected || !name.trim()) return;
+    const next = {
+      ...selected,
+      memory: memory.trim() || memoryFile || memoryLink.trim(),
+      memoryType,
+      memoryLink: memoryLink.trim() || undefined,
+      memoryName: memoryFile || undefined,
+    };
+    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+    setSelected(next);
+    setLeaveMode(false);
+    setMessage("MEMORY LEFT. THIS STAR WILL CARRY IT FORWARD.");
+  };
+
+  const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) setMemoryFile(file.name);
   };
 
   const release = () => {
@@ -228,6 +261,9 @@ export default function Home() {
       status: "resting" as const,
       claimant: undefined,
       memory: undefined,
+      memoryType: undefined,
+      memoryLink: undefined,
+      memoryName: undefined,
       availableAt: Date.now() + delay,
     };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
@@ -251,7 +287,38 @@ export default function Home() {
 
       {selected && (
         <aside className="star-card glass">
-          <button className="close" onClick={() => setSelected(null)} aria-label="Close">×</button>
+          <button className="close" onClick={() => { setSelected(null); setLeaveMode(false); }} aria-label="Close">×</button>
+          {leaveMode ? (
+            <div className="leave-memory">
+              <span className="eyebrow">STAR CLAIMED · {selected.street.toUpperCase()}</span>
+              <div className="leave-title"><span className="leave-star">★</span><h2>LEAVE<br /><em>SOMETHING.</em></h2></div>
+              <p className="leave-intro">This moment belongs to you. Leave something for the next person who finds this star.</p>
+              <div className="memory-options">
+                {[
+                  { type: "message" as MemoryType, label: "MESSAGE", hint: "Leave a few words.", icon: "Aa" },
+                  { type: "photo" as MemoryType, label: "PHOTO", hint: "Leave a moment.", icon: "◫" },
+                  { type: "song" as MemoryType, label: "SONG", hint: "Leave something to hear.", icon: "♫" },
+                  { type: "link" as MemoryType, label: "LINK", hint: "Leave something to explore.", icon: "↗" },
+                ].map((option) => (
+                  <button key={option.type} className={`memory-option ${memoryType === option.type ? "active" : ""}`} onClick={() => setMemoryType(option.type)}>
+                    <span className="memory-icon">{option.icon}</span><span><strong>{option.label}</strong><small>{option.hint}</small></span>
+                  </button>
+                ))}
+              </div>
+              {memoryType === "photo" ? (
+                <label className="memory-upload"><input type="file" accept="image/*" onChange={handlePhoto} /><span className="upload-mark">+</span><strong>{memoryFile || "CHOOSE A PHOTO"}</strong><small>{memoryFile ? "READY TO LEAVE ON THIS STAR." : "A PHOTO FROM YOUR CAMERA ROLL."}</small></label>
+              ) : memoryType === "song" ? (
+                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Song or streaming link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="Song title or a few words" /></div>
+              ) : memoryType === "link" ? (
+                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Paste a link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What are you leaving?" /></div>
+              ) : (
+                <div className="memory-editor"><textarea value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={4} autoFocus /></div>
+              )}
+              <button className="locate-button wide leave-submit" onClick={saveMemory}>LEAVE IT HERE <span>→</span></button>
+              <button className="skip-memory" onClick={() => { setLeaveMode(false); setMessage("YOU CAN LEAVE SOMETHING HERE ANY TIME."); }}>NOT NOW</button>
+            </div>
+          ) : (
+          <>
           <span className="eyebrow">{selected.status.toUpperCase()}</span>
           <div className="star-card-title"><span>★</span><h2>{selected.id}</h2></div>
           <p className="street-name">{selected.street}<br />Berlin</p>
@@ -277,25 +344,4 @@ export default function Home() {
         </aside>
       )}
 
-      {claimMoment && selected && (
-        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">
-          <div className="claim-moment-backdrop" />
-          <div className="claim-moment-content">
-            <div className="claim-moment-star" aria-hidden="true">
-              <span className="star-glyph">★</span>
-              <span className="star-rays" />
-            </div>
-            <span className="eyebrow">STREET STARS · BERLIN</span>
-            <div className="claim-kicker">THE STAR IS YOURS</div>
-            <h2>{selected.street}</h2>
-            <p>STAR {selected.id} · LEFT BY {selected.claimant?.toUpperCase()}</p>
-            {selected.memory && <blockquote>“{selected.memory}”</blockquote>}
-            <div className="claim-rule" />
-            <span className="claim-foot">A MEMORY HAS BEEN LEFT ON THIS STREET.</span>
-          </div>
-        </div>
-      )}
-
-    </main>
-  );
-}
+      {claimMoment && selected && (\n        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">\n          <div className="claim-moment-backdrop" />\n          <div className="claim-particles" aria-hidden="true">{Array.from({ length: 26 }, (_, i) => <i key={i} style={{ "--i": i } as React.CSSProperties} />)}</div>\n          <div className="claim-glints" aria-hidden="true"><i /><i /><i /><i /></div>\n          <div className="claim-moment-content">\n            <div className="claim-moment-star" aria-hidden="true"><span className="star-glyph">★</span><span className="star-rays" /></div>\n            <span className="eyebrow">STREET STARS · BERLIN</span>\n            <div className="claim-kicker">THE STAR IS YOURS</div>\n            <h2>{selected.street}</h2>\n            <p>STAR {selected.id} · CLAIMED BY {selected.claimant?.toUpperCase()}</p>\n          </div>\n        </div>\n      )}\n    </main>\n  );\n}\n
