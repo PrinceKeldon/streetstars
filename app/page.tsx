@@ -79,7 +79,7 @@ export default function Home() {
       container: mapNode.current,
       style: "https://tiles.openfreemap.org/styles/liberty",
       center: [BERLIN.lon, BERLIN.lat],
-      zoom: 11.7,
+      zoom: 12.8,
       pitch: 48,
       bearing: -8,
       maxPitch: 65,
@@ -103,7 +103,7 @@ export default function Home() {
         source: "streetstars-buildings",
         "source-layer": "building",
         type: "fill-extrusion",
-        minzoom: 14,
+        minzoom: 13,
         filter: ["!=", ["get", "hide_3d"], true],
         paint: {
           "fill-extrusion-color": [
