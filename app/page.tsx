@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import maplibregl, { type Map as MapLibreMap } from "maplibre-gl";
 
 type Star = {
   id: string;
@@ -13,7 +14,7 @@ type Star = {
   availableAt?: number;
 };
 
-const BERLIN = { lat: 52.5200, lon: 13.4050 };
+const BERLIN = { lat: 52.52, lon: 13.405 };
 
 const SEED: Star[] = [
   { id: "BERLIN-001", street: "Oranienstraße", lat: 52.499, lon: 13.423, status: "available" },
@@ -34,24 +35,30 @@ function distanceMetres(a: { lat: number; lon: number }, b: { lat: number; lon: 
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-function project(lat: number, lon: number) {
-  const left = 13.27;
-  const right = 13.53;
-  const top = 52.60;
-  const bottom = 52.43;
-  return {
-    x: ((lon - left) / (right - left)) * 100,
-    y: ((top - lat) / (top - bottom)) * 100,
-  };
+function StarMarker({ star, onClick }: { star: Star; onClick: () => void }) {
+  return (
+    <button className={`map-star-marker ${star.status}`} onClick={onClick} aria-label={star.id}>
+      <span className="star-halo" aria-hidden="true" />
+      <span className="star-glyph" aria-hidden="true">★</span>
+      <span className="star-pulse" aria-hidden="true" />
+    </button>
+  );
 }
 
 export default function Home() {
+  const mapNode = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+
   const [stars, setStars] = useState(SEED);
   const [selected, setSelected] = useState<Star | null>(null);
   const [position, setPosition] = useState<typeof BERLIN | null>(null);
   const [name, setName] = useState("");
   const [memory, setMemory] = useState("");
   const [message, setMessage] = useState("");
+  const [mapReady, setMapReady] = useState(false);
+  const [claimMoment, setClaimMoment] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -62,34 +69,137 @@ export default function Home() {
     localStorage.setItem("streetstars:stars", JSON.stringify(stars));
   }, [stars]);
 
-  const visibleStars = useMemo(
-    () => stars.map((s) => s.availableAt && s.availableAt <= Date.now()
+  const visibleStars = useMemo(() => stars.map((s) =>
+    s.availableAt && s.availableAt <= Date.now()
       ? { ...s, status: "available" as const, availableAt: undefined }
-      : s),
-    [stars]
-  );
+      : s
+  ), [stars]);
+
+  useEffect(() => {
+    if (!mapNode.current || mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: mapNode.current,
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      center: [BERLIN.lon, BERLIN.lat],
+      zoom: 12.8,
+      pitch: 48,
+      bearing: -8,
+      maxPitch: 65,
+      canvasContextAttributes: { antialias: true },
+    });
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
+
+    map.on("load", () => {
+      map.addSource("streetstars-buildings", {
+        type: "vector",
+        url: "https://tiles.openfreemap.org/planet",
+      });
+
+      const labelLayer = map.getStyle().layers?.find(
+        (layer) => layer.type === "symbol" && layer.layout?.["text-field"]
+      )?.id;
+
+      map.addLayer({
+        id: "streetstars-3d-buildings",
+        source: "streetstars-buildings",
+        "source-layer": "building",
+        type: "fill-extrusion",
+        minzoom: 13,
+        filter: ["!=", ["get", "hide_3d"], true],
+        paint: {
+          "fill-extrusion-color": [
+            "interpolate",
+            ["linear"],
+            ["get", "render_height"],
+            0, "#d8d4ca",
+            35, "#c8c2b7",
+            100, "#aaa398",
+          ],
+          "fill-extrusion-opacity": 0.82,
+          "fill-extrusion-height": [
+            "interpolate", ["linear"], ["zoom"], 14, 0, 15, ["get", "render_height"]
+          ],
+          "fill-extrusion-base": ["get", "render_min_height"],
+        },
+      }, labelLayer);
+
+      mapRef.current = map;
+      setMapReady(true);
+      map.resize();
+    });
+
+    return () => {
+      markersRef.current.forEach((marker) => marker.remove());
+      userMarkerRef.current?.remove();
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    markersRef.current.forEach((marker) => marker.remove());
+    markersRef.current = visibleStars.map((star) => {
+      const element = document.createElement("div");
+      const button = document.createElement("button");
+      button.className = `map-star-marker ${star.status}`;
+      button.setAttribute("aria-label", `${star.id} · ${star.street}`);
+      button.innerHTML = `
+        <span class="star-halo" aria-hidden="true"></span>
+        <span class="star-glyph" aria-hidden="true">★</span>
+        <span class="star-pulse" aria-hidden="true"></span>
+      `;
+      button.onclick = () => {
+        setSelected(star);
+        setMessage("");
+        map.flyTo({ center: [star.lon, star.lat], zoom: Math.max(map.getZoom(), 14.7), pitch: 52, duration: 900 });
+      };
+      element.appendChild(button);
+      return new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat([star.lon, star.lat])
+        .addTo(map);
+    });
+
+    if (position) {
+      const element = document.createElement("div");
+      element.className = "you-are-here";
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat([position.lon, position.lat])
+        .addTo(map);
+    }
+  }, [visibleStars, position, mapReady]);
+
+  const locate = () => {
+    navigator.geolocation?.getCurrentPosition(
+      (p) => {
+        const next = { lat: p.coords.latitude, lon: p.coords.longitude };
+        setPosition(next);
+        mapRef.current?.flyTo({ center: [next.lon, next.lat], zoom: 15, pitch: 52, duration: 1200 });
+      },
+      () => {
+        setPosition(BERLIN);
+        mapRef.current?.flyTo({ center: [BERLIN.lon, BERLIN.lat], zoom: 13.5, pitch: 48, duration: 1000 });
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
 
   const distance = selected && position ? Math.round(distanceMetres(position, selected)) : null;
   const found = distance !== null && distance <= 75;
 
-  const locate = () => {
-    navigator.geolocation?.getCurrentPosition(
-      (p) => setPosition({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => setPosition(BERLIN)
-    );
-  };
-
   const claim = () => {
     if (!selected || !found || !name.trim()) return;
-    const next = {
-      ...selected,
-      status: "claimed" as const,
-      claimant: name.trim(),
-      memory: memory.trim(),
-    };
+    const next = { ...selected, status: "claimed" as const, claimant: name.trim(), memory: memory.trim() };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
     setMessage("YOU FOUND IT.");
+    setClaimMoment(true);
+    window.setTimeout(() => setClaimMoment(false), 4200);
   };
 
   const release = () => {
@@ -109,80 +219,11 @@ export default function Home() {
 
   return (
     <main className="street-stars">
-      <div className="map-canvas" aria-label="Berlin Street Stars map">
-        <svg className="berlin-map" viewBox="0 0 1000 680" preserveAspectRatio="none" role="img">
-          <rect width="1000" height="680" className="map-ground" />
-          <path className="spree" d="M0 205 C130 250 190 175 305 235 S470 315 560 260 S700 175 820 235 S940 315 1000 270" />
-          <path className="spree" d="M0 430 C130 385 210 470 335 425 S515 370 650 430 S820 505 1000 440" />
-          <ellipse className="ringbahn" cx="500" cy="340" rx="365" ry="245" />
-          <g className="minor-roads">
-            <path d="M70 70 L310 610" /><path d="M160 20 L500 650" /><path d="M260 0 L650 680" />
-            <path d="M420 0 L780 680" /><path d="M575 0 L930 680" /><path d="M720 10 L990 560" />
-            <path d="M30 160 L960 610" /><path d="M10 280 L990 180" /><path d="M40 500 L970 300" />
-            <path d="M90 600 L920 90" /><path d="M190 680 L850 30" />
-          </g>
-          <g className="major-roads">
-            <path d="M95 545 L350 300 L480 95" />
-            <path d="M315 640 L505 390 L690 55" />
-            <path d="M40 355 L310 355 L520 350 L920 355" />
-            <path d="M170 150 L400 275 L650 285 L900 170" />
-            <path d="M490 665 L500 390 L505 20" />
-          </g>
-          <g className="map-labels">
-            <text x="210" y="170">CHARLOTTENBURG</text>
-            <text x="420" y="115">MITTE</text>
-            <text x="610" y="170">PRENZLAUER BERG</text>
-            <text x="690" y="315">FRIEDRICHSHAIN</text>
-            <text x="570" y="500">KREUZBERG</text>
-            <text x="780" y="520">NEUKÖLLN</text>
-            <text x="330" y="500">TEMPELHOF</text>
-            <text x="505" y="285">Mitte</text>
-            <text x="835" y="355">Spree</text>
-          </g>
-        </svg>
-
-        <div className="map-grid" />
-
-        {visibleStars.map((star) => {
-          const p = project(star.lat, star.lon);
-          return (
-            <button
-              key={star.id}
-              className={"star-marker " + star.status}
-              style={{ left: p.x + "%", top: p.y + "%" }}
-              onClick={() => {
-                setSelected(star);
-                setMessage("");
-              }}
-              aria-label={star.id}
-            >
-              <span>★</span>
-            </button>
-          );
-        })}
-
-        {position && (
-          <div
-            className="you-are-here"
-            style={{
-              left: project(position.lat, position.lon).x + "%",
-              top: project(position.lat, position.lon).y + "%",
-            }}
-          >
-            <span />
-          </div>
-        )}
-      </div>
+      <div ref={mapNode} className="map-canvas" aria-label="Interactive Berlin Street Stars map" />
 
       <header className="topbar glass">
-        <div className="brand-mark">
-          <span className="brand-star">★</span>
-          <span>STREET STARS</span>
-        </div>
-        <div className="topbar-right">
-          <span>BERLIN</span>
-          <span className="edition-pill">EDITION I · 2026–2030</span>
-        </div>
+        <div className="brand-mark"><span className="brand-star">★</span><span>STREET STARS</span></div>
+        <div className="topbar-right"><span>BERLIN</span><span className="edition-pill">EDITION I · 2026–2030</span></div>
       </header>
 
       {!selected && (
@@ -190,11 +231,7 @@ export default function Home() {
           <span className="eyebrow">BERLIN · STREET STARS</span>
           <h1>Give the streets<br /><em>a memory.</em></h1>
           <p>Walk the city. Find a Star. Leave something behind.</p>
-          <div className="how">
-            <span><b>01</b> FIND</span>
-            <span><b>02</b> WALK</span>
-            <span><b>03</b> LEAVE</span>
-          </div>
+          <div className="how"><span><b>01</b> FIND</span><span><b>02</b> WALK</span><span><b>03</b> LEAVE</span></div>
           <button className="locate-button" onClick={locate}>LOCATE ME <span>→</span></button>
         </section>
       )}
@@ -205,15 +242,11 @@ export default function Home() {
           <span className="eyebrow">{selected.status.toUpperCase()}</span>
           <div className="star-card-title"><span>★</span><h2>{selected.id}</h2></div>
           <p className="street-name">{selected.street}<br />Berlin</p>
-
           {selected.status === "resting" ? (
             <div className="resting-copy">This Star is resting.<br />It will return without warning.</div>
           ) : selected.status === "claimed" ? (
             <>
-              <div className="memory-copy">
-                <span>LEFT BY {selected.claimant?.toUpperCase()}</span>
-                {selected.memory && <p>“{selected.memory}”</p>}
-              </div>
+              <div className="memory-copy"><span>LEFT BY {selected.claimant?.toUpperCase()}</span>{selected.memory && <p>“{selected.memory}”</p>}</div>
               <button className="text-button" onClick={release}>RELEASE STAR →</button>
             </>
           ) : (
@@ -221,17 +254,8 @@ export default function Home() {
               {!position && <button className="locate-button wide" onClick={locate}>GO FIND IT →</button>}
               {position && (
                 <>
-                  <div className={"distance-readout " + (found ? "found" : "")}>
-                    <strong>{distance}m</strong>
-                    <span>{found ? "YOU FOUND IT." : "WALK TO THIS STAR"}</span>
-                  </div>
-                  {found && (
-                    <div className="claim-form">
-                      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-                      <textarea value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={3} />
-                      <button className="locate-button wide" onClick={claim}>CLAIM & LEAVE →</button>
-                    </div>
-                  )}
+                  <div className={`distance-readout ${found ? "found" : ""}`}><strong>{distance}m</strong><span>{found ? "YOU FOUND IT." : "WALK TO THIS STAR"}</span></div>
+                  {found && <div className="claim-form"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" /><textarea value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={3} /><button className="locate-button wide" onClick={claim}>CLAIM & LEAVE →</button></div>}
                 </>
               )}
             </>
@@ -244,11 +268,26 @@ export default function Home() {
         <span><i className="legend-star available">★</i> AVAILABLE</span>
         <span><i className="legend-star claimed">★</i> CLAIMED</span>
       </div>
+      {claimMoment && selected && (
+        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">
+          <div className="claim-moment-backdrop" />
+          <div className="claim-moment-content">
+            <div className="claim-moment-star" aria-hidden="true">
+              <span className="star-glyph">★</span>
+              <span className="star-rays" />
+            </div>
+            <span className="eyebrow">STREET STARS · BERLIN</span>
+            <div className="claim-kicker">THE STAR IS YOURS</div>
+            <h2>{selected.street}</h2>
+            <p>STAR {selected.id} · LEFT BY {selected.claimant?.toUpperCase()}</p>
+            {selected.memory && <blockquote>“{selected.memory}”</blockquote>}
+            <div className="claim-rule" />
+            <span className="claim-foot">A MEMORY HAS BEEN LEFT ON THIS STREET.</span>
+          </div>
+        </div>
+      )}
 
-      <footer className="map-footer">
-        <span>PLACE → STAR → MEMORY</span>
-        <span>STREET STARS · BERLIN</span>
-      </footer>
+      <footer className="map-footer"><span>PLACE → STAR → MEMORY</span><span>STREET STARS · BERLIN</span></footer>
     </main>
   );
 }

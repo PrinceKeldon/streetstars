@@ -1,4 +1,6 @@
 import "./globals.css";
+import "./map.css";
+import "maplibre-gl/dist/maplibre-gl.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
