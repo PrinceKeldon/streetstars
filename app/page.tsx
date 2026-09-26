@@ -129,6 +129,12 @@ export default function Home() {
   ), [stars]);
 
   useEffect(() => {
+    if (!selected) return;
+    const current = stars.find((star) => star.id === selected.id);
+    if (current && current !== selected) setSelected(current);
+  }, [stars]);
+
+  useEffect(() => {
     const expirePendingClaims = () => {
       const currentTime = Date.now();
       setNow(currentTime);
