@@ -90,6 +90,7 @@ export default function Home() {
   const [encounterMode, setEncounterMode] = useState(false);
   const [claimStarted, setClaimStarted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [verificationSent, setVerificationSent] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -365,7 +366,8 @@ export default function Home() {
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
     setLeaveMode(false);
-    setMessage("MEMORY LEFT. VERIFY YOUR CLAIM WITHIN 24 HOURS.");
+    setVerificationSent(true);
+    setMessage("");
   };
 
   const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -398,6 +400,7 @@ export default function Home() {
 
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
+    setVerificationSent(false);
     setMessage(
       publishedMemory
         ? "CLAIM VERIFIED. THIS MEMORY IS NOW PART OF THE STAR'S HISTORY."
@@ -422,6 +425,7 @@ export default function Home() {
     };
     setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
     setSelected(next);
+    setVerificationSent(false);
     setMessage("RELEASED. THE STAR WILL RETURN WITHOUT WARNING.");
   };
 
@@ -441,7 +445,7 @@ export default function Home() {
 
       {selected && !claimMoment && (
         <aside className={"star-card glass " + (leaveMode ? "leave-card" : "") + (encounterMode ? "encounter-card" : "")}>
-          <button className="close" onClick={() => { setSelected(null); setLeaveMode(false); setEncounterMode(false); setClaimStarted(false); }} aria-label="Close">×</button>
+          <button className="close" onClick={() => { setSelected(null); setLeaveMode(false); setEncounterMode(false); setClaimStarted(false); setVerificationSent(false); }} aria-label="Close">×</button>
           {leaveMode ? (
             <div className="leave-memory">
               <span className="eyebrow">STAR CLAIMED · {selected.street.toUpperCase()}</span>
@@ -512,11 +516,17 @@ export default function Home() {
                   </div>
 
                   {selected.claimStatus === "pending_verification" && (
-                    <div className="verification-panel">
+                    <div className={"verification-panel " + (verificationSent ? "sent" : "")}>
+                      <div className="verification-mark" aria-hidden="true"><span>✉</span></div>
+                      <div className="verification-eyebrow">{verificationSent ? "MAGIC LINK READY" : "VERIFICATION"}</div>
                       <strong>Keep your Star memory</strong>
                       <p>We’ve sent a link to verify your claim.</p>
-                      <small>This prototype simulates the magic-link step. Verification must happen within 24 hours.</small>
-                      <button className="locate-button wide verify-button" onClick={verifyClaim}>VERIFY CLAIM <span>→</span></button>
+                      <div className="verification-detail">
+                        <span className="verification-dot" />
+                        <span>VERIFY WITHIN <b>24 HOURS</b></span>
+                      </div>
+                      <small>This prototype simulates the magic-link handoff. Your Star remains reserved while you verify.</small>
+                      <button className="locate-button wide verify-button" onClick={verifyClaim}>OPEN VERIFICATION LINK <span>→</span></button>
                     </div>
                   )}
 
