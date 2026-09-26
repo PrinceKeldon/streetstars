@@ -60,6 +60,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [claimMoment, setClaimMoment] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem("streetstars:stars");
@@ -178,17 +179,20 @@ export default function Home() {
   }, [visibleStars, position, mapReady]);
 
   const locate = () => {
-    navigator.geolocation?.getCurrentPosition(
+    if (!navigator.geolocation || locating) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
       (p) => {
         const next = { lat: p.coords.latitude, lon: p.coords.longitude };
         setPosition(next);
+        setLocating(false);
         mapRef.current?.flyTo({ center: [next.lon, next.lat], zoom: 15, pitch: 52, duration: 1200 });
       },
       () => {
-        setPosition(BERLIN);
-        mapRef.current?.flyTo({ center: [BERLIN.lon, BERLIN.lat], zoom: 13.5, pitch: 48, duration: 1000 });
+        setLocating(false);
+        setMessage("LOCATION COULD NOT BE FOUND.");
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
   };
 
@@ -223,6 +227,16 @@ export default function Home() {
   return (
     <main className="street-stars">
       <div ref={mapNode} className="map-canvas" aria-label="Interactive Berlin Street Stars map" />
+
+      <button
+        className={`my-location-button ${position ? "located" : ""} ${locating ? "locating" : ""}`}
+        onClick={locate}
+        disabled={locating}
+        aria-label={locating ? "Finding your location" : "Show my location"}
+      >
+        <span className="location-crosshair" aria-hidden="true"><i /></span>
+        <span>{locating ? "LOCATING" : position ? "MY LOCATION" : "MY LOCATION"}</span>
+      </button>
 
       {selected && (
         <aside className="star-card glass">
