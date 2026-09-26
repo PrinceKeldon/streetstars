@@ -42,8 +42,19 @@ button{cursor:pointer}
 .map-star-marker.resting{opacity:.2}
 @keyframes star-pulse{0%{transform:scale(.72);opacity:.8}75%{transform:scale(1.16);opacity:0}100%{transform:scale(1.16);opacity:0}}
 
-.you-are-here{position:absolute;width:18px;height:18px;transform:translate(-50%,-50%);border:2px solid #191918;border-radius:50%;z-index:5}
-.you-are-here span{display:block;width:6px;height:6px;margin:4px;border-radius:50%;background:#191918}
+.my-location-button{position:absolute;left:24px;bottom:24px;z-index:7;display:flex;align-items:center;gap:10px;height:44px;padding:0 16px 0 13px;border:1px solid rgba(255,255,255,.78);border-radius:999px;background:rgba(247,245,239,.78);color:#3b3934;box-shadow:0 12px 32px rgba(48,45,38,.14);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);font:9px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;transition:transform .2s ease,background .2s ease,opacity .2s ease}
+.my-location-button:hover:not(:disabled){transform:translateY(-2px);background:rgba(255,253,247,.9)}
+.my-location-button:disabled{cursor:wait;opacity:.78}
+.my-location-button.located{color:#a94f31}
+.location-crosshair{position:relative;width:18px;height:18px;border:1.5px solid currentColor;border-radius:50%;display:grid;place-items:center}
+.location-crosshair:before,.location-crosshair:after{content:"";position:absolute;background:currentColor}
+.location-crosshair:before{width:1px;height:24px}
+.location-crosshair:after{width:24px;height:1px}
+.location-crosshair i{position:relative;z-index:1;width:5px;height:5px;border-radius:50%;background:currentColor}
+.my-location-button.locating .location-crosshair{animation:location-pulse 1s ease-in-out infinite}
+@keyframes location-pulse{0%,100%{transform:scale(1);opacity:.65}50%{transform:scale(1.12);opacity:1}}
+.you-are-here{position:absolute;width:20px;height:20px;transform:translate(-50%,-50%);border:2px solid #191918;border-radius:50%;z-index:5;box-shadow:0 0 0 5px rgba(255,255,255,.45)}
+.you-are-here:before{content:"";position:absolute;inset:5px;border-radius:50%;background:#191918}
 .star-card{position:absolute;right:34px;bottom:34px;width:min(390px,calc(100vw - 68px));padding:28px;border-radius:24px;z-index:8}
 .close{position:absolute;right:18px;top:15px;border:0;background:none;font-size:26px;color:#77736a}
 .star-card-title{display:flex;align-items:center;gap:11px;margin:15px 0 5px}
@@ -68,6 +79,7 @@ button{cursor:pointer}
 .legend-star.claimed{color:#5b5850}
 .map-footer{position:absolute;left:34px;right:34px;bottom:22px;display:flex;justify-content:space-between;z-index:6;font:8px ui-monospace,monospace;letter-spacing:.13em;color:#77736a}
 @media(max-width:700px){
+  .my-location-button{left:14px;bottom:14px;height:42px;padding-right:14px}
   .topbar{top:12px;left:12px;right:12px;height:54px;padding:0 14px}
   .topbar-right>span:first-child{display:none}
   .edition-pill{font-size:8px}
