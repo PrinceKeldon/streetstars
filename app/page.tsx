@@ -131,7 +131,7 @@ export default function Home() {
     s.availableAt && s.availableAt <= Date.now()
       ? { ...s, status: "available" as const, availableAt: undefined }
       : s
-  ), [stars]);
+  ), [stars, now]);
 
   useEffect(() => {
     if (!selected) return;
@@ -165,6 +165,20 @@ export default function Home() {
               verificationExpiresAt: undefined,
             };
           }
+
+          if (
+            star.status === "resting" &&
+            star.availableAt &&
+            currentTime >= star.availableAt
+          ) {
+            changed = true;
+            return {
+              ...star,
+              status: "available" as const,
+              availableAt: undefined,
+            };
+          }
+
           return star;
         });
         return changed ? next : prev;
@@ -521,7 +535,17 @@ export default function Home() {
                   {position && (
                     <>
                       <div className={"distance-readout " + (found ? "found" : "")}><strong>{distance}m</strong><span>{found ? "YOU FOUND IT." : "WALK TO THIS STAR"}</span></div>
-                      {found && <div className="claim-form"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" /><button className="locate-button wide claim-button" onClick={claim} disabled={!name.trim()}>CLAIM THIS STAR <span>★</span></button></div>}
+                      {found && !claimStarted && (
+                        <button className="locate-button wide claim-button" onClick={startClaim}>CLAIM STAR <span>★</span></button>
+                      )}
+                      {found && claimStarted && (
+                        <div className="claim-form">
+                          <p className="claim-prompt">What should we call you?</p>
+                          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoFocus />
+                          <small>Your name appears with the memory you leave.</small>
+                          <button className="locate-button wide claim-button" onClick={claim} disabled={!name.trim()}>CONTINUE <span>→</span></button>
+                        </div>
+                      )}
                     </>
                   )}
                 </>
