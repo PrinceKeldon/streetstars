@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { api, type ApiStar } from "./lib/api";
 
 type MemoryType = "message" | "photo" | "song" | "link";
 
@@ -30,6 +31,7 @@ type Star = {
   memoryType?: MemoryType;
   memoryLink?: string;
   memoryName?: string;
+  claimId?: string;
   history?: StarMemory[];
   availableAt?: number;
   claimStatus?: ClaimStatus;
@@ -82,6 +84,9 @@ export default function Home() {
   const [memoryType, setMemoryType] = useState<MemoryType>("message");
   const [memoryLink, setMemoryLink] = useState("");
   const [memoryFile, setMemoryFile] = useState("");
+  const [memoryPhoto, setMemoryPhoto] = useState<File | null>(null);
+  const [email, setEmail] = useState("");
+  const [verificationLink, setVerificationLink] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [claimMoment, setClaimMoment] = useState(false);
@@ -92,41 +97,43 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const [verificationSent, setVerificationSent] = useState(false);
 
-  useEffect(() => {
-    const raw = localStorage.getItem("streetstars:stars");
-    if (!raw) return;
+  const loadStars = async () => {
     try {
-      const stored = JSON.parse(raw) as Star[];
-      setStars(stored.map((star) => {
-        if (star.history) {
-          return {
-            ...star,
-            claimStatus: star.status === "claimed" ? (star.claimStatus || "verified") : star.claimStatus,
-          };
-        }
-        if (!star.memory && !star.claimant) return { ...star, history: [] };
-        return {
-          ...star,
-          claimStatus: star.status === "claimed" ? "verified" : star.claimStatus,
-          history: [{
-            id: `legacy-${star.id}`,
-            claimant: star.claimant || "UNKNOWN",
-            type: star.memoryType || "message",
-            text: star.memory,
-            link: star.memoryLink,
-            name: star.memoryName,
-            createdAt: Date.now(),
-          }],
-        };
-      }));
-    } catch {
-      localStorage.removeItem("streetstars:stars");
+      const remote = await api.listStars();
+      setStars(remote.map((star: ApiStar): Star => ({
+        id: star.id,
+        street: star.street,
+        lat: star.lat,
+        lon: star.lon,
+        status: star.status,
+        claimant: star.claimant,
+        claimStatus: star.claim_status,
+        verificationExpiresAt: star.verification_expires_at ? new Date(star.verification_expires_at).getTime() : undefined,
+        availableAt: star.available_at ? new Date(star.available_at).getTime() : undefined,
+        claimId: star.claim_id,
+        history: star.history.map((entry) => ({
+          id: entry.id,
+          claimant: entry.claimant,
+          type: entry.type,
+          text: entry.text,
+          link: entry.link,
+          name: entry.name,
+          createdAt: new Date(entry.created_at).getTime(),
+        })),
+      })));
+    } catch (error) {
+      setMessage(error instanceof Error ? "STARS COULD NOT BE LOADED." : "STARS COULD NOT BE LOADED.");
     }
-  }, []);
+  };
 
   useEffect(() => {
-    localStorage.setItem("streetstars:stars", JSON.stringify(stars));
-  }, [stars]);
+    loadStars();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("verified") === "1") {
+      setMessage("CLAIM VERIFIED. YOUR STAR MEMORY IS NOW PART OF THE HISTORY.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   const visibleStars = useMemo(() => stars.map((s) =>
     s.availableAt && s.availableAt <= Date.now()
@@ -141,53 +148,7 @@ export default function Home() {
   }, [stars]);
 
   useEffect(() => {
-    const expirePendingClaims = () => {
-      const currentTime = Date.now();
-      setNow(currentTime);
-      setStars((prev) => {
-        let changed = false;
-        const next = prev.map((star) => {
-          if (
-            star.status === "claimed" &&
-            star.claimStatus === "pending_verification" &&
-            star.verificationExpiresAt &&
-            currentTime >= star.verificationExpiresAt
-          ) {
-            changed = true;
-            return {
-              ...star,
-              status: "available" as const,
-              claimant: undefined,
-              memory: undefined,
-              memoryType: undefined,
-              memoryLink: undefined,
-              memoryName: undefined,
-              claimStatus: undefined,
-              verificationExpiresAt: undefined,
-            };
-          }
-
-          if (
-            star.status === "resting" &&
-            star.availableAt &&
-            currentTime >= star.availableAt
-          ) {
-            changed = true;
-            return {
-              ...star,
-              status: "available" as const,
-              availableAt: undefined,
-            };
-          }
-
-          return star;
-        });
-        return changed ? next : prev;
-      });
-    };
-
-    expirePendingClaims();
-    const interval = window.setInterval(expirePendingClaims, 1000);
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -331,102 +292,117 @@ export default function Home() {
     setMessage("");
   };
 
-  const claim = () => {
+  const claim = async () => {
     if (!selected || !found || !name.trim()) return;
-    const next = {
-      ...selected,
-      status: "claimed" as const,
-      claimant: name.trim(),
-      claimStatus: "pending_verification" as const,
-      verificationExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
-      memory: undefined,
-      memoryType: undefined,
-      memoryLink: undefined,
-      memoryName: undefined,
-    };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setMessage("");
-    setClaimMoment(true);
-    window.setTimeout(() => {
-      setClaimMoment(false);
-      setLeaveMode(true);
-    }, 2850);
+    try {
+      const result = await api.claim(selected.id, {
+        display_name: name.trim(),
+        lat: position!.lat,
+        lon: position!.lon,
+      });
+      const next = {
+        ...selected,
+        status: "claimed" as const,
+        claimant: result.display_name,
+        claimStatus: "pending_verification" as const,
+        verificationExpiresAt: new Date(result.verification_expires_at).getTime(),
+        claimId: result.id,
+        memory: undefined,
+        memoryType: undefined,
+        memoryLink: undefined,
+        memoryName: undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setMessage("");
+      setClaimMoment(true);
+      window.setTimeout(() => {
+        setClaimMoment(false);
+        setLeaveMode(true);
+      }, 2850);
+    } catch {
+      setMessage("THIS STAR HAS JUST BEEN CLAIMED. REFRESHING.");
+      await loadStars();
+    }
   };
 
-  const saveMemory = () => {
-    if (!selected || !name.trim()) return;
-    const next = {
-      ...selected,
-      memory: memory.trim() || memoryFile || memoryLink.trim(),
-      memoryType,
-      memoryLink: memoryLink.trim() || undefined,
-      memoryName: memoryFile || undefined,
-    };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setLeaveMode(false);
-    setVerificationSent(true);
-    setMessage("");
+  const saveMemory = async () => {
+    if (!selected?.claimId) return;
+    const form = new FormData();
+    form.append("type", memoryType);
+    if (memory.trim()) form.append("text", memory.trim());
+    if (memoryLink.trim()) form.append("external_url", memoryLink.trim());
+    if (memoryPhoto) form.append("file", memoryPhoto);
+    try {
+      await api.saveMemory(selected.claimId, form);
+      const next = {
+        ...selected,
+        memory: memory.trim() || memoryFile || memoryLink.trim(),
+        memoryType,
+        memoryLink: memoryLink.trim() || undefined,
+        memoryName: memoryFile || undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setLeaveMode(false);
+      setVerificationSent(false);
+      setVerificationLink(null);
+      setMessage("");
+    } catch {
+      setMessage("THE MEMORY COULD NOT BE SAVED.");
+    }
   };
 
   const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) setMemoryFile(file.name);
+    if (file) {
+      setMemoryFile(file.name);
+      setMemoryPhoto(file);
+    }
+  };
+
+  const sendVerification = async () => {
+    if (!selected?.claimId || !email.trim()) return;
+    try {
+      const result = await api.sendVerification(selected.claimId, email.trim());
+      setVerificationLink(result.verification_link || null);
+      setVerificationSent(true);
+      setMessage("");
+    } catch {
+      setMessage("WE COULD NOT SEND THE VERIFICATION LINK.");
+    }
   };
 
   const verifyClaim = () => {
-    if (!selected || selected.claimStatus !== "pending_verification") return;
-
-    const memoryToPublish = selected.memory || selected.memoryName || selected.memoryLink;
-    const publishedMemory: StarMemory | null = memoryToPublish ? {
-      id: selected.id + "-" + Date.now(),
-      claimant: selected.claimant || "UNKNOWN",
-      type: selected.memoryType || "message",
-      text: selected.memory || undefined,
-      link: selected.memoryLink || undefined,
-      name: selected.memoryName || undefined,
-      createdAt: Date.now(),
-    } : null;
-
-    const next = {
-      ...selected,
-      claimStatus: "verified" as const,
-      verificationExpiresAt: undefined,
-      history: publishedMemory
-        ? [...(selected.history || []), publishedMemory]
-        : (selected.history || []),
-    };
-
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setVerificationSent(false);
-    setMessage(
-      publishedMemory
-        ? "CLAIM VERIFIED. THIS MEMORY IS NOW PART OF THE STAR'S HISTORY."
-        : "CLAIM VERIFIED. THE STAR NOW REMEMBERS YOU."
-    );
+    if (verificationLink) window.location.href = verificationLink;
+    else setMessage("CHECK YOUR EMAIL TO VERIFY YOUR STAR.");
   };
 
-  const release = () => {
-    if (!selected) return;
-    const delay = (6 + Math.floor(Math.random() * 67)) * 60 * 60 * 1000;
-    const next = {
-      ...selected,
-      status: "resting" as const,
-      claimant: undefined,
-      memory: undefined,
-      memoryType: undefined,
-      memoryLink: undefined,
-      memoryName: undefined,
-      availableAt: Date.now() + delay,
-      claimStatus: undefined,
-      verificationExpiresAt: undefined,
-    };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setVerificationSent(false);
-    setMessage("RELEASED. THE STAR WILL RETURN WITHOUT WARNING.");
+  const release = async () => {
+    if (!selected?.claimId) return;
+    try {
+      const result = await api.release(selected.claimId);
+      const next = {
+        ...selected,
+        status: "resting" as const,
+        claimant: undefined,
+        memory: undefined,
+        memoryType: undefined,
+        memoryLink: undefined,
+        memoryName: undefined,
+        availableAt: new Date(result.available_at).getTime(),
+        claimStatus: undefined,
+        verificationExpiresAt: undefined,
+        claimId: undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setVerificationSent(false);
+      setVerificationLink(null);
+      setMessage("RELEASED. THE STAR WILL RETURN WITHOUT WARNING.");
+    } catch {
+      setMessage("THE STAR COULD NOT BE RELEASED.");
+    }
   };
 
   return (
@@ -520,13 +496,20 @@ export default function Home() {
                       <div className="verification-mark" aria-hidden="true"><span>✉</span></div>
                       <div className="verification-eyebrow">{verificationSent ? "MAGIC LINK READY" : "VERIFICATION"}</div>
                       <strong>Keep your Star memory</strong>
-                      <p>We’ve sent a link to verify your claim.</p>
+                      <p>{verificationSent ? "We’ve sent a link to verify your claim." : "Leave your email and we’ll send your verification link."}</p>
                       <div className="verification-detail">
                         <span className="verification-dot" />
                         <span>VERIFY WITHIN <b>24 HOURS</b></span>
                       </div>
-                      <small>This prototype simulates the magic-link handoff. Your Star remains reserved while you verify.</small>
-                      <button className="locate-button wide verify-button" onClick={verifyClaim}>OPEN VERIFICATION LINK <span>→</span></button>
+                      <small>Your Star remains reserved while you verify. The link expires in 24 hours.</small>
+                      {!verificationSent && (
+                        <div className="memory-editor verification-email">
+                          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Your email address" autoComplete="email" />
+                        </div>
+                      )}
+                      <button className="locate-button wide verify-button" onClick={verificationSent ? verifyClaim : sendVerification} disabled={!verificationSent && !email.trim()}>
+                        {verificationSent ? (verificationLink ? "OPEN VERIFICATION LINK" : "CHECK YOUR EMAIL") : "SEND VERIFICATION LINK"} <span>→</span>
+                      </button>
                     </div>
                   )}
 
@@ -552,7 +535,7 @@ export default function Home() {
                         <div className="claim-form">
                           <p className="claim-prompt">What should we call you?</p>
                           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoFocus />
-                          <small>Your name appears with the memory you leave.</small>
+                          <small>Your name appears with the memory you leave. We’ll ask for email after your memory is saved.</small>
                           <button className="locate-button wide claim-button" onClick={claim} disabled={!name.trim()}>CONTINUE <span>→</span></button>
                         </div>
                       )}
@@ -574,7 +557,7 @@ export default function Home() {
           <div className="claim-moment-content">
             <div className="claim-moment-star" aria-hidden="true"><span className="star-glyph">★</span><span className="star-rays" /></div>
             <span className="eyebrow">STREET STARS · BERLIN</span>
-            <div className="claim-kicker">THE STAR IS YOURS</div>
+            <div className="claim-kicker">WELCOME TO THE STARS.</div>
             <h2>{selected.street}</h2>
             <p>STAR {selected.id} · CLAIMED BY {selected.claimant?.toUpperCase()}</p>
           </div>
