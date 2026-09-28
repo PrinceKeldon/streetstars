@@ -4,8 +4,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { api, type ApiStar } from "./lib/api";
 
 type MemoryType = "message" | "photo" | "song" | "link";
+
+type StarMemory = {
+  id: string;
+  claimant: string;
+  type: MemoryType;
+  text?: string;
+  link?: string;
+  name?: string;
+  createdAt: number;
+};
+
+type ClaimStatus = "pending_verification" | "verified";
 
 type Star = {
   id: string;
@@ -18,7 +31,11 @@ type Star = {
   memoryType?: MemoryType;
   memoryLink?: string;
   memoryName?: string;
+  claimId?: string;
+  history?: StarMemory[];
   availableAt?: number;
+  claimStatus?: ClaimStatus;
+  verificationExpiresAt?: number;
 };
 
 const BERLIN = { lat: 52.52, lon: 13.405 };
@@ -67,26 +84,73 @@ export default function Home() {
   const [memoryType, setMemoryType] = useState<MemoryType>("message");
   const [memoryLink, setMemoryLink] = useState("");
   const [memoryFile, setMemoryFile] = useState("");
+  const [memoryPhoto, setMemoryPhoto] = useState<File | null>(null);
+  const [email, setEmail] = useState("");
+  const [verificationLink, setVerificationLink] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [claimMoment, setClaimMoment] = useState(false);
   const [leaveMode, setLeaveMode] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [encounterMode, setEncounterMode] = useState(false);
+  const [claimStarted, setClaimStarted] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [verificationSent, setVerificationSent] = useState(false);
+
+  const loadStars = async () => {
+    try {
+      const remote = await api.listStars();
+      setStars(remote.map((star: ApiStar): Star => ({
+        id: star.id,
+        street: star.street,
+        lat: star.lat,
+        lon: star.lon,
+        status: star.status,
+        claimant: star.claimant,
+        claimStatus: star.claim_status,
+        verificationExpiresAt: star.verification_expires_at ? new Date(star.verification_expires_at).getTime() : undefined,
+        availableAt: star.available_at ? new Date(star.available_at).getTime() : undefined,
+        claimId: star.claim_id,
+        history: star.history.map((entry) => ({
+          id: entry.id,
+          claimant: entry.claimant,
+          type: entry.type,
+          text: entry.text,
+          link: entry.link,
+          name: entry.name,
+          createdAt: new Date(entry.created_at).getTime(),
+        })),
+      })));
+    } catch (error) {
+      setMessage(error instanceof Error ? "STARS COULD NOT BE LOADED." : "STARS COULD NOT BE LOADED.");
+    }
+  };
 
   useEffect(() => {
-    const raw = localStorage.getItem("streetstars:stars");
-    if (raw) setStars(JSON.parse(raw));
+    loadStars();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("verified") === "1") {
+      setMessage("CLAIM VERIFIED. YOUR STAR MEMORY IS NOW PART OF THE HISTORY.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem("streetstars:stars", JSON.stringify(stars));
-  }, [stars]);
 
   const visibleStars = useMemo(() => stars.map((s) =>
     s.availableAt && s.availableAt <= Date.now()
       ? { ...s, status: "available" as const, availableAt: undefined }
       : s
-  ), [stars]);
+  ), [stars, now]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const current = stars.find((star) => star.id === selected.id);
+    if (current && current !== selected) setSelected(current);
+  }, [stars]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (!mapNode.current || mapRef.current) return;
@@ -172,6 +236,8 @@ export default function Home() {
       `;
       button.onclick = () => {
         setSelected(star);
+        setEncounterMode(true);
+        setClaimStarted(false);
         setMessage("");
         map.flyTo({ center: [star.lon, star.lat], zoom: Math.max(map.getZoom(), 14.7), pitch: 52, duration: 900 });
       };
@@ -220,55 +286,123 @@ export default function Home() {
   const distance = selected && position ? Math.round(distanceMetres(position, selected)) : null;
   const found = distance !== null && distance <= 75;
 
-  const claim = () => {
-    if (!selected || !found || !name.trim()) return;
-    const next = { ...selected, status: "claimed" as const, claimant: name.trim() };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
+  const startClaim = () => {
+    if (!selected || !found) return;
+    setClaimStarted(true);
     setMessage("");
-    setClaimMoment(true);
-    window.setTimeout(() => {
-      setClaimMoment(false);
-      setLeaveMode(true);
-    }, 2850);
   };
 
-  const saveMemory = () => {
-    if (!selected || !name.trim()) return;
-    const next = {
-      ...selected,
-      memory: memory.trim() || memoryFile || memoryLink.trim(),
-      memoryType,
-      memoryLink: memoryLink.trim() || undefined,
-      memoryName: memoryFile || undefined,
-    };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setLeaveMode(false);
-    setMessage("MEMORY LEFT. THIS STAR WILL CARRY IT FORWARD.");
+  const claim = async () => {
+    if (!selected || !found || !name.trim()) return;
+    try {
+      const result = await api.claim(selected.id, {
+        display_name: name.trim(),
+        lat: position!.lat,
+        lon: position!.lon,
+      });
+      const next = {
+        ...selected,
+        status: "claimed" as const,
+        claimant: result.display_name,
+        claimStatus: "pending_verification" as const,
+        verificationExpiresAt: new Date(result.verification_expires_at).getTime(),
+        claimId: result.id,
+        memory: undefined,
+        memoryType: undefined,
+        memoryLink: undefined,
+        memoryName: undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setMessage("");
+      setClaimMoment(true);
+      window.setTimeout(() => {
+        setClaimMoment(false);
+        setLeaveMode(true);
+      }, 2850);
+    } catch {
+      setMessage("THIS STAR HAS JUST BEEN CLAIMED. REFRESHING.");
+      await loadStars();
+    }
+  };
+
+  const saveMemory = async () => {
+    if (!selected?.claimId) return;
+    const form = new FormData();
+    form.append("type", memoryType);
+    if (memory.trim()) form.append("text", memory.trim());
+    if (memoryLink.trim()) form.append("external_url", memoryLink.trim());
+    if (memoryPhoto) form.append("file", memoryPhoto);
+    try {
+      await api.saveMemory(selected.claimId, form);
+      const next = {
+        ...selected,
+        memory: memory.trim() || memoryFile || memoryLink.trim(),
+        memoryType,
+        memoryLink: memoryLink.trim() || undefined,
+        memoryName: memoryFile || undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setLeaveMode(false);
+      setVerificationSent(false);
+      setVerificationLink(null);
+      setMessage("");
+    } catch {
+      setMessage("THE MEMORY COULD NOT BE SAVED.");
+    }
   };
 
   const handlePhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) setMemoryFile(file.name);
+    if (file) {
+      setMemoryFile(file.name);
+      setMemoryPhoto(file);
+    }
   };
 
-  const release = () => {
-    if (!selected) return;
-    const delay = (6 + Math.floor(Math.random() * 67)) * 60 * 60 * 1000;
-    const next = {
-      ...selected,
-      status: "resting" as const,
-      claimant: undefined,
-      memory: undefined,
-      memoryType: undefined,
-      memoryLink: undefined,
-      memoryName: undefined,
-      availableAt: Date.now() + delay,
-    };
-    setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
-    setSelected(next);
-    setMessage("RELEASED. THE STAR WILL RETURN WITHOUT WARNING.");
+  const sendVerification = async () => {
+    if (!selected?.claimId || !email.trim()) return;
+    try {
+      const result = await api.sendVerification(selected.claimId, email.trim());
+      setVerificationLink(result.verification_link || null);
+      setVerificationSent(true);
+      setMessage("");
+    } catch {
+      setMessage("WE COULD NOT SEND THE VERIFICATION LINK.");
+    }
+  };
+
+  const verifyClaim = () => {
+    if (verificationLink) window.location.href = verificationLink;
+    else setMessage("CHECK YOUR EMAIL TO VERIFY YOUR STAR.");
+  };
+
+  const release = async () => {
+    if (!selected?.claimId) return;
+    try {
+      const result = await api.release(selected.claimId);
+      const next = {
+        ...selected,
+        status: "resting" as const,
+        claimant: undefined,
+        memory: undefined,
+        memoryType: undefined,
+        memoryLink: undefined,
+        memoryName: undefined,
+        availableAt: new Date(result.available_at).getTime(),
+        claimStatus: undefined,
+        verificationExpiresAt: undefined,
+        claimId: undefined,
+      };
+      setStars((prev) => prev.map((s) => s.id === selected.id ? next : s));
+      setSelected(next);
+      setVerificationSent(false);
+      setVerificationLink(null);
+      setMessage("RELEASED. THE STAR WILL RETURN WITHOUT WARNING.");
+    } catch {
+      setMessage("THE STAR COULD NOT BE RELEASED.");
+    }
   };
 
   return (
@@ -285,4 +419,150 @@ export default function Home() {
         <span>{locating ? "LOCATING" : position ? "MY LOCATION" : "MY LOCATION"}</span>
       </button>
 
-      {selected && !claimMoment && (\n        <aside className={"star-card glass " + (leaveMode ? "leave-card" : "")}>\n          <button className="close" onClick={() => { setSelected(null); setLeaveMode(false); }} aria-label="Close">×</button>\n          {leaveMode ? (\n            <div className="leave-memory">\n              <span className="eyebrow">STAR CLAIMED · {selected.street.toUpperCase()}</span>\n              <div className="leave-title"><span className="leave-star">★</span><h2>LEAVE<br /><em>SOMETHING.</em></h2></div>\n              <p className="leave-intro">This moment belongs to you. Leave something for the next person who finds this star.</p>\n              <div className="memory-options">\n                {[\n                  { type: "message" as MemoryType, label: "MESSAGE", hint: "Leave a few words.", icon: "Aa" },\n                  { type: "photo" as MemoryType, label: "PHOTO", hint: "Leave a moment.", icon: "◫" },\n                  { type: "song" as MemoryType, label: "SONG", hint: "Leave something to hear.", icon: "♫" },\n                  { type: "link" as MemoryType, label: "LINK", hint: "Leave something to explore.", icon: "↗" },\n                ].map((option) => (\n                  <button key={option.type} className={"memory-option " + (memoryType === option.type ? "active" : "")} onClick={() => setMemoryType(option.type)}>\n                    <span className="memory-icon">{option.icon}</span><span><strong>{option.label}</strong><small>{option.hint}</small></span>\n                  </button>\n                ))}\n              </div>\n              {memoryType === "photo" ? (\n                <label className="memory-upload"><input type="file" accept="image/*" onChange={handlePhoto} /><span className="upload-mark">+</span><strong>{memoryFile || "CHOOSE A PHOTO"}</strong><small>{memoryFile ? "READY TO LEAVE ON THIS STAR." : "A PHOTO FROM YOUR CAMERA ROLL."}</small></label>\n              ) : memoryType === "song" ? (\n                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Song or streaming link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="Song title or a few words" /></div>\n              ) : memoryType === "link" ? (\n                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Paste a link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What are you leaving?" /></div>\n              ) : (\n                <div className="memory-editor"><textarea value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={4} autoFocus /></div>\n              )}\n              <button className="locate-button wide leave-submit" onClick={saveMemory}>LEAVE IT HERE <span>→</span></button>\n              <button className="skip-memory" onClick={() => { setLeaveMode(false); setMessage("YOU CAN LEAVE SOMETHING HERE ANY TIME."); }}>NOT NOW</button>\n            </div>\n          ) : (\n            <>\n              <span className="eyebrow">{selected.status.toUpperCase()}</span>\n              <div className="star-card-title"><span>★</span><h2>{selected.id}</h2></div>\n              <p className="street-name">{selected.street}<br />Berlin</p>\n              {selected.status === "resting" ? (\n                <div className="resting-copy">This Star is resting.<br />It will return without warning.</div>\n              ) : selected.status === "claimed" ? (\n                <>\n                  <div className="memory-copy"><span>LEFT BY {selected.claimant?.toUpperCase()}</span>{selected.memory && <p>{selected.memoryType === "message" ? "“" + selected.memory + "”" : selected.memory}</p>}{selected.memoryName && <p>◫ {selected.memoryName}</p>}{selected.memoryLink && <p>↗ {selected.memoryLink}</p>}</div>\n                  <button className="text-button" onClick={() => setLeaveMode(true)}>LEAVE SOMETHING ELSE →</button>\n                  <button className="text-button" onClick={release}>RELEASE STAR →</button>\n                </>\n              ) : (\n                <>\n                  {!position && <button className="locate-button wide" onClick={locate}>GO FIND IT →</button>}\n                  {position && (\n                    <>\n                      <div className={"distance-readout " + (found ? "found" : "")}><strong>{distance}m</strong><span>{found ? "YOU FOUND IT." : "WALK TO THIS STAR"}</span></div>\n                      {found && <div className="claim-form"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" /><button className="locate-button wide claim-button" onClick={claim} disabled={!name.trim()}>CLAIM THIS STAR <span>★</span></button></div>}\n                    </>\n                  )}\n                </>\n              )}\n              {message && <div className="message">{message}</div>}\n            </>\n          )}\n        </aside>\n      )}\n\n      {claimMoment && selected && (\n        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">\n          <div className="claim-moment-backdrop" />\n          <div className="claim-particles" aria-hidden="true">{Array.from({ length: 26 }, (_, i) => <i key={i} style={{ "--i": i } as React.CSSProperties} />)}</div>\n          <div className="claim-glints" aria-hidden="true"><i /><i /><i /><i /></div>\n          <div className="claim-moment-content">\n            <div className="claim-moment-star" aria-hidden="true"><span className="star-glyph">★</span><span className="star-rays" /></div>\n            <span className="eyebrow">STREET STARS · BERLIN</span>\n            <div className="claim-kicker">THE STAR IS YOURS</div>\n            <h2>{selected.street}</h2>\n            <p>STAR {selected.id} · CLAIMED BY {selected.claimant?.toUpperCase()}</p>\n          </div>\n        </div>\n      )}\n    </main>\n  );\n}\n
+      {selected && !claimMoment && (
+        <aside className={"star-card glass " + (leaveMode ? "leave-card" : "") + (encounterMode ? "encounter-card" : "")}>
+          <button className="close" onClick={() => { setSelected(null); setLeaveMode(false); setEncounterMode(false); setClaimStarted(false); setVerificationSent(false); }} aria-label="Close">×</button>
+          {leaveMode ? (
+            <div className="leave-memory">
+              <span className="eyebrow">STAR CLAIMED · {selected.street.toUpperCase()}</span>
+              <div className="leave-title"><span className="leave-star">★</span><h2>LEAVE<br /><em>SOMETHING.</em></h2></div>
+              <p className="leave-intro">This moment belongs to you. Leave something for the next person who finds this star.</p>
+              <div className="memory-options">
+                {[
+                  { type: "message" as MemoryType, label: "MESSAGE", hint: "Leave a few words.", icon: "Aa" },
+                  { type: "photo" as MemoryType, label: "PHOTO", hint: "Leave a moment.", icon: "◫" },
+                  { type: "song" as MemoryType, label: "SONG", hint: "Leave something to hear.", icon: "♫" },
+                  { type: "link" as MemoryType, label: "LINK", hint: "Leave something to explore.", icon: "↗" },
+                ].map((option) => (
+                  <button key={option.type} className={"memory-option " + (memoryType === option.type ? "active" : "")} onClick={() => setMemoryType(option.type)}>
+                    <span className="memory-icon">{option.icon}</span><span><strong>{option.label}</strong><small>{option.hint}</small></span>
+                  </button>
+                ))}
+              </div>
+              {memoryType === "photo" ? (
+                <label className="memory-upload"><input type="file" accept="image/*" onChange={handlePhoto} /><span className="upload-mark">+</span><strong>{memoryFile || "CHOOSE A PHOTO"}</strong><small>{memoryFile ? "READY TO LEAVE ON THIS STAR." : "A PHOTO FROM YOUR CAMERA ROLL."}</small></label>
+              ) : memoryType === "song" ? (
+                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Song or streaming link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="Song title or a few words" /></div>
+              ) : memoryType === "link" ? (
+                <div className="memory-editor"><input value={memoryLink} onChange={(e) => setMemoryLink(e.target.value)} placeholder="Paste a link" /><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What are you leaving?" /></div>
+              ) : (
+                <div className="memory-editor"><textarea value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="What would you like to leave here?" rows={4} autoFocus /></div>
+              )}
+              <button className="locate-button wide leave-submit" onClick={saveMemory}>LEAVE IT HERE <span>→</span></button>
+              <button className="skip-memory" onClick={() => { setLeaveMode(false); setMessage("YOU CAN LEAVE SOMETHING HERE ANY TIME."); }}>NOT NOW</button>
+            </div>
+          ) : (
+            <>
+              <span className="eyebrow">{selected.status.toUpperCase()}</span>
+              <div className="star-card-title"><span>★</span><h2>{selected.id}</h2></div>
+              <p className="street-name">{selected.street}<br />Berlin</p>
+              {selected.status === "resting" ? (
+                <>
+                  <div className="resting-copy">This Star is resting.<br />It will return without warning.</div>
+                  {selected.history && selected.history.length > 0 && (
+                    <div className="star-history">
+                      <span className="history-heading">{selected.history.length} {selected.history.length === 1 ? "MEMORY" : "MEMORIES"} LEFT HERE</span>
+                      {[...selected.history].reverse().map((entry) => (
+                        <div className="history-entry" key={entry.id}>
+                          <div className="history-meta"><strong>{entry.claimant.toUpperCase()}</strong><span>{new Date(entry.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
+                          {entry.text && <p>{entry.type === "message" ? "“" + entry.text + "”" : entry.text}</p>}
+                          {entry.name && <p>◫ {entry.name}</p>}
+                          {entry.link && <p>↗ {entry.link}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : selected.status === "claimed" ? (
+                <>
+                  <div className={"claim-status " + (selected.claimStatus === "pending_verification" ? "pending" : "verified")}>
+                    <span className="claim-status-label">
+                      {selected.claimStatus === "pending_verification" ? "CLAIMED · VERIFYING" : "CLAIM VERIFIED"}
+                    </span>
+                    {selected.claimStatus === "pending_verification" && selected.verificationExpiresAt && (
+                      <span className="verification-countdown">
+                        {(() => {
+                          const remaining = Math.max(0, selected.verificationExpiresAt - now);
+                          const hours = Math.floor(remaining / 3600000);
+                          const minutes = Math.floor((remaining % 3600000) / 60000);
+                          return hours + "H " + minutes.toString().padStart(2, "0") + "M REMAINING";
+                        })()}
+                      </span>
+                    )}
+                  </div>
+
+                  {selected.claimStatus === "pending_verification" && (
+                    <div className={"verification-panel " + (verificationSent ? "sent" : "")}>
+                      <div className="verification-mark" aria-hidden="true"><span>✉</span></div>
+                      <div className="verification-eyebrow">{verificationSent ? "MAGIC LINK READY" : "VERIFICATION"}</div>
+                      <strong>Keep your Star memory</strong>
+                      <p>{verificationSent ? "We’ve sent a link to verify your claim." : "Leave your email and we’ll send your verification link."}</p>
+                      <div className="verification-detail">
+                        <span className="verification-dot" />
+                        <span>VERIFY WITHIN <b>24 HOURS</b></span>
+                      </div>
+                      <small>Your Star remains reserved while you verify. The link expires in 24 hours.</small>
+                      {!verificationSent && (
+                        <div className="memory-editor verification-email">
+                          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Your email address" autoComplete="email" />
+                        </div>
+                      )}
+                      <button className="locate-button wide verify-button" onClick={verificationSent ? verifyClaim : sendVerification} disabled={!verificationSent && !email.trim()}>
+                        {verificationSent ? (verificationLink ? "OPEN VERIFICATION LINK" : "CHECK YOUR EMAIL") : "SEND VERIFICATION LINK"} <span>→</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="memory-copy">
+                    <span>LEFT BY {selected.claimant?.toUpperCase()}</span>
+                    {selected.memory && <p>{selected.memoryType === "message" ? "“" + selected.memory + "”" : selected.memory}</p>}
+                    {selected.memoryName && <p>◫ {selected.memoryName}</p>}
+                    {selected.memoryLink && <p>↗ {selected.memoryLink}</p>}
+                  </div>
+                  <button className="text-button" onClick={() => setLeaveMode(true)}>LEAVE SOMETHING ELSE →</button>
+                  {selected.claimStatus === "verified" && <button className="text-button" onClick={release}>RELEASE STAR →</button>}
+                </>
+              ) : (
+                <>
+                  {!position && <button className="locate-button wide" onClick={locate}>GO FIND IT →</button>}
+                  {position && (
+                    <>
+                      <div className={"distance-readout " + (found ? "found" : "")}><strong>{distance}m</strong><span>{found ? "YOU FOUND IT." : "WALK TO THIS STAR"}</span></div>
+                      {found && !claimStarted && (
+                        <button className="locate-button wide claim-button" onClick={startClaim}>CLAIM STAR <span>★</span></button>
+                      )}
+                      {found && claimStarted && (
+                        <div className="claim-form">
+                          <p className="claim-prompt">What should we call you?</p>
+                          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoFocus />
+                          <small>Your name appears with the memory you leave. We’ll ask for email after your memory is saved.</small>
+                          <button className="locate-button wide claim-button" onClick={claim} disabled={!name.trim()}>CONTINUE <span>→</span></button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {message && <div className="message">{message}</div>}
+            </>
+          )}
+        </aside>
+      )}
+
+      {claimMoment && selected && (
+        <div className="claim-moment" role="dialog" aria-live="polite" aria-label="Star claimed">
+          <div className="claim-moment-backdrop" />
+          <div className="claim-particles" aria-hidden="true">{Array.from({ length: 26 }, (_, i) => <i key={i} style={{ "--i": i } as React.CSSProperties} />)}</div>
+          <div className="claim-glints" aria-hidden="true"><i /><i /><i /><i /></div>
+          <div className="claim-moment-content">
+            <div className="claim-moment-star" aria-hidden="true"><span className="star-glyph">★</span><span className="star-rays" /></div>
+            <span className="eyebrow">STREET STARS · BERLIN</span>
+            <div className="claim-kicker">WELCOME TO THE STARS.</div>
+            <h2>{selected.street}</h2>
+            <p>STAR {selected.id} · CLAIMED BY {selected.claimant?.toUpperCase()}</p>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
