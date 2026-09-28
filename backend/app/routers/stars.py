@@ -16,30 +16,39 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-def serialize_star(db: Session, star: Star) -> StarOut:
-    pending = db.scalar(
+def active_claim(db: Session, star_id: str) -> Claim | None:
+    claims = db.scalars(
         select(Claim)
-        .where(Claim.star_id == star.id, Claim.status == "pending_verification")
+        .where(Claim.star_id == star_id, Claim.status.in_(["pending_verification", "verified"]))
         .order_by(Claim.claimed_at.desc())
-    )
-    verified = db.scalar(
-        select(Claim)
-        .where(Claim.star_id == star.id, Claim.status == "verified")
-        .order_by(Claim.verified_at.desc())
-    )
-    active = pending or verified
+    ).all()
+    now = utcnow()
+    for claim in claims:
+        if claim.status == "pending_verification" and claim.verification_expires_at <= now:
+            claim.status = "expired"
+            continue
+        return claim
+    db.commit()
+    return None
 
+
+def serialize_star(db: Session, star: Star) -> StarOut:
+    active = active_claim(db, star.id)
     memories = db.scalars(
-        select(Memory, Claim)
+        select(Memory)
         .join(Claim, Memory.claim_id == Claim.id)
         .where(Claim.star_id == star.id, Claim.status == "verified", Memory.published_at.is_not(None))
         .order_by(Memory.created_at.asc())
     ).all()
 
+    claimants = {
+        claim.id: claim.display_name
+        for claim in db.scalars(select(Claim).where(Claim.id.in_([m.claim_id for m in memories]))).all()
+    }
     history = [
         MemoryOut(
             id=memory.id,
-            claimant=claim.display_name,
+            claimant=claimants.get(memory.claim_id, "UNKNOWN"),
             type=memory.type,
             text=memory.text,
             link=memory.external_url,
@@ -47,7 +56,7 @@ def serialize_star(db: Session, star: Star) -> StarOut:
             name=memory.media_name,
             created_at=memory.created_at,
         )
-        for memory, claim in memories
+        for memory in memories
     ]
 
     status = "available"
@@ -63,6 +72,7 @@ def serialize_star(db: Session, star: Star) -> StarOut:
         lat=star.lat,
         lon=star.lon,
         status=status,
+        claim_id=active.id if active else None,
         claimant=active.display_name if active else None,
         claim_status=active.status if active else None,
         verification_expires_at=active.verification_expires_at if active and active.status == "pending_verification" else None,
