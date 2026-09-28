@@ -57,7 +57,7 @@ def active_claim(db: Session, star_id: str) -> Claim | None:
 
 @router.post("/stars/{star_id}/claims", response_model=ClaimOut)
 def create_claim(star_id: str, payload: ClaimCreate, db: Session = Depends(get_db)):
-    star = db.get(Star, star_id)
+    star = db.scalar(select(Star).where(Star.id == star_id).with_for_update())
     if not star:
         raise HTTPException(404, "Star not found")
     now = utcnow()
