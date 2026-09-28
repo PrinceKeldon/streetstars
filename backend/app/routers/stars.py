@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/stars", tags=["stars"])
 
 
 def utcnow():
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def active_claim(db: Session, star_id: str) -> Claim | None:
