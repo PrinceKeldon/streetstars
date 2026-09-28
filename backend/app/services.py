@@ -7,7 +7,7 @@ import httpx
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def new_token() -> str:
