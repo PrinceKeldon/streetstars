@@ -32,6 +32,10 @@ def distance_metres(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> f
 
 def expire_if_needed(claim: Claim, db: Session) -> bool:
     if claim.status == "pending_verification" and claim.verification_expires_at <= utcnow():
+        if claim.memory:
+            db.delete(claim.memory)
+        if claim.token:
+            db.delete(claim.token)
         claim.status = "expired"
         db.commit()
         return True
